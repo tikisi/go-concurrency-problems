@@ -5,6 +5,30 @@ import (
 	"sync"
 )
 
+func orDone[T any](done <-chan struct{}, in <-chan T) <-chan T {
+	ch := make(chan T)
+
+	go func() {
+		defer close(ch)
+		for {
+			select {
+			case <-done:
+				return
+			case v, ok := <-in:
+				if !ok {
+					return
+				}
+				select {
+				case <-done:
+				case ch <- v:
+				}
+			}
+		}
+	}()
+
+	return ch
+}
+
 func repeatFn[T any](ctx context.Context, fn func() T) <-chan T {
 	ch := make(chan T)
 
@@ -50,16 +74,15 @@ func fanIn[T any](ctx context.Context, channels ...<-chan T) <-chan T {
 	var wg sync.WaitGroup
 	wg.Add(len(channels))
 	for _, inCh := range channels {
-		go func(ctx context.Context, inCh <-chan T) {
+		go func() {
 			defer wg.Done()
-			for v := range inCh {
+			for v := range orDone(ctx.Done(), inCh) {
 				select {
 				case ch <- v:
 				case <-ctx.Done():
-					return
 				}
 			}
-		}(ctx, inCh)
+		}()
 	}
 
 	go func() {

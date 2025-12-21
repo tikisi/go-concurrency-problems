@@ -34,18 +34,17 @@ func IsPrimeFilter(ctx context.Context, input <-chan int) <-chan int {
 
 	go func() {
 		defer close(ch)
+		for v := range orDone(ctx.Done(), input) {
+			if IsPrime(v) {
+				ch <- v
+			}
 
-		for v := range input {
 			select {
+			case ch <- v:
 			case <-ctx.Done():
 				return
-			default:
-				if IsPrime(v) {
-					ch <- v
-				}
 			}
 		}
-
 	}()
 
 	return ch
